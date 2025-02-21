@@ -43,13 +43,37 @@ const light = new THREE.DirectionalLight(0xffffff, 1);
 light.position.set(5, 5, 5);
 scene.add(light);
 
-// Load FBX Model
+const cubeTextureLoader = new THREE.CubeTextureLoader();
+const envMap = cubeTextureLoader.load([
+  '/cubemap/posx.jpg', '/cubemap/negx.jpg', // +X, -X
+  '/cubemap/posy.jpg', '/cubemap/negy.jpg', // +Y, -Y
+  '/cubemap/posz.jpg', '/cubemap/negz.jpg'  // +Z, -Z
+]);
+
+scene.environment = envMap; // Apply environment map globally
+scene.background = envMap;  // Make the cubemap visible by setting it as bg
+
+// ========================================================================== //
+// FBX model setup
 const loader = new FBXLoader();
 loader.load(
   '/guard.fbx', // Path relative to the public/ folder
   (fbx) => {
     fbx.scale.set(1.0, 1.0, 1.0); // Scale down if too large
     fbx.position.set(0.0, 0.0, 0.0);
+
+    fbx.traverse((child) => {
+      if (child.isMesh) {
+        child.material = new THREE.MeshStandardMaterial({
+          color: 0xdddddd, // Light gray metal
+          metalness: 1.0,  // Fully metallic
+          roughness: 0.15
+        });
+        child.material.envMap = envMap;
+        child.material.needsUpdate = true;
+      }
+    });
+
     scene.add(fbx);
   },
   (xhr) => {
