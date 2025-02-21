@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
 // Get the canvas element
 const canvas = document.getElementById('webgl-container');
@@ -19,21 +20,45 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   1000
 );
-camera.position.set(0, 0, 10); // Position the camera
+camera.position.set(0, 2, 2); // Position the camera
+
+// Add a grid helper
+const gridHelper = new THREE.GridHelper(2, 20);
+scene.add(gridHelper);
+
+// Add an axis helper
+const axesHelper = new THREE.AxesHelper(0.1); // 1 is the size of the axes
+scene.add(axesHelper);
 
 // Add OrbitControls
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; // Smooth movement
 controls.dampingFactor = 0.05;
 controls.screenSpacePanning = false;
-controls.minDistance = 2;
+controls.minDistance = 1;
 controls.maxDistance = 20;
 
-// Create a Sphere
-const geometry = new THREE.SphereGeometry(1, 16, 16);
-const material = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, wireframe: true });
-const sphere = new THREE.Mesh(geometry, material);
-scene.add(sphere);
+// Add a Light Source
+const light = new THREE.DirectionalLight(0xffffff, 1);
+light.position.set(5, 5, 5);
+scene.add(light);
+
+// Load FBX Model
+const loader = new FBXLoader();
+loader.load(
+  '/guard.fbx', // Path relative to the public/ folder
+  (fbx) => {
+    fbx.scale.set(1.0, 1.0, 1.0); // Scale down if too large
+    fbx.position.set(0.0, 0.0, 0.0);
+    scene.add(fbx);
+  },
+  (xhr) => {
+    console.log(`FBX Loading: ${(xhr.loaded / xhr.total) * 100}% loaded`);
+  },
+  (error) => {
+    console.error('Error loading FBX:', error);
+  }
+);
 
 // Animation Loop
 function animate() {
@@ -41,9 +66,6 @@ function animate() {
 
   // Update controls on each frame
   controls.update();
-
-  // Rotate the sphere
-  sphere.rotation.y += 0.01;
 
   renderer.render(scene, camera);
 }
