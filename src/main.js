@@ -40,7 +40,9 @@ controls.maxDistance = 20;
 
 // Add a Light Source
 const light = new THREE.DirectionalLight(0xffffff, 1);
-light.position.set(5, 5, 5);
+light.position.set(0, 3, 5);
+light.color.setRGB(1.0, 1.0, 0.96);
+light.intensity = 1.5;
 scene.add(light);
 
 const cubeTextureLoader = new THREE.CubeTextureLoader();
@@ -53,6 +55,27 @@ const envMap = cubeTextureLoader.load([
 scene.environment = envMap; // Apply environment map globally
 scene.background = envMap;  // Make the cubemap visible by setting it as bg
 
+async function loadShader(url) {
+  const response = await fetch(url);
+  return await response.text();
+}
+
+const guardVs = await loadShader('glsl/guard.vs.glsl');
+const guardFs = await loadShader('glsl/guard.fs.glsl');
+
+const guardMaterial = new THREE.ShaderMaterial({
+  vertexShader: guardVs,
+  fragmentShader: guardFs,
+  uniforms: {
+      metalness: { value: 0.9 },
+      roughness: { value: 0.2 },
+      lightPosition: {value: light.position},
+      lightColor: {value: light.color},
+      lightIntensity: {value: light.intensity},
+      envMap: {value: envMap}
+  }
+});
+
 // ========================================================================== //
 // FBX model setup
 const loader = new FBXLoader();
@@ -64,12 +87,7 @@ loader.load(
 
     fbx.traverse((child) => {
       if (child.isMesh) {
-        child.material = new THREE.MeshStandardMaterial({
-          color: 0xdddddd, // Light gray metal
-          metalness: 1.0,  // Fully metallic
-          roughness: 0.15
-        });
-        child.material.envMap = envMap;
+        child.material = guardMaterial;
         child.material.needsUpdate = true;
       }
     });
