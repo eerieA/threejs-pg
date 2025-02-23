@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import * as dat from 'dat.gui';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
@@ -72,7 +73,10 @@ const guardMaterial = new THREE.ShaderMaterial({
       lightPosition: {value: light.position},
       lightColor: {value: light.color},
       lightIntensity: {value: light.intensity},
-      envMap: {value: envMap}
+      envMap: {value: envMap},
+      disvProgress: {value: 0.1},
+      disvEdgeWidth: {value: 0.05},
+      disvEdgeColor: {value: new THREE.Vector3(1.0, 0.0, 0.0)},
   }
 });
 
@@ -101,6 +105,28 @@ loader.load(
     console.error('Error loading FBX:', error);
   }
 );
+
+// ========================================================================== //
+// UIs
+const gui = new dat.GUI();
+
+// Slider to control dissolve progress for guardMaterial
+const params = {
+  disvProgress: 0.1,    // Initial value
+  disvEdgeWidth: 0.05, // Initial value
+  disvEdgeColor: "#ff0000" // Initial value, has to be hex for dat GUI
+};
+gui.add(params, 'disvProgress', 0.0, 1.0).step(0.01).onChange((value) => {
+  guardMaterial.uniforms.disvProgress.value = value;
+});
+gui.add(params, 'disvEdgeWidth', 0.0, 0.5).step(0.01).onChange((value) => {
+  guardMaterial.uniforms.disvEdgeWidth.value = value;
+});
+gui.addColor(params, 'disvEdgeColor').onChange((value) => {
+  // Convert hex string to a THREE.Color, then to a THREE.Vector3
+  const color = new THREE.Color(value);
+  guardMaterial.uniforms.disvEdgeColor.value.set(color.r, color.g, color.b);
+});
 
 // Animation Loop
 function animate() {
