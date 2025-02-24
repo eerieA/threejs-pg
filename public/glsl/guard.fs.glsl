@@ -60,38 +60,42 @@ void main() {
 
     // Dissolution related
     vec2 uv = vWorldPos.xy * 1.0; // Scale of noise pattern, adjust as needed
-    float disvWithEdge = disvProgress + disvEdgeWidth;
-    float noise = perlin_noise(uv, 10.0);
-    if (noise < disvProgress) {
+    float noise = perlin_noise(uv, 10.0);if (noise < disvProgress) {
         discard; // Make some fragments disappear
     }
-    if (noise >= disvProgress && noise < disvWithEdge){
-        gl_FragColor = vec4(disvEdgeColor, 1.0);
-    }
+
+    // Define the full edge width range
+    float edgeWidth = disvEdgeWidth; // or tweak as needed
+    // Compute a smooth interpolation factor for the edge region:
+    float t = clamp((noise - disvProgress) / edgeWidth, 0.0, 1.0);
+    t = pow(t, 7.0); // Increase exponent for a sharper transition
 
     // Unaffected material
-    if (noise >= disvWithEdge) {
-        // Lambertian Diffuse Lighting
-        float diff = max(dot(normal, lightDir), 0.0);
-        vec3 diffuse = diff * lightColor * lightIntensity;
+    // Lambertian Diffuse Lighting
+    float diff = max(dot(normal, lightDir), 0.0);
+    vec3 diffuse = diff * lightColor * lightIntensity;
 
-        // Blinn-Phong Specular Highlights
-        vec3 halfDir = normalize(lightDir + viewDir);
-        float spec = pow(max(dot(normal, halfDir), 0.0), mix(10.0, 100.0, 1.0 - roughness));
-        vec3 specular = spec * lightColor * lightIntensity;
+    // Blinn-Phong Specular Highlights
+    vec3 halfDir = normalize(lightDir + viewDir);
+    float spec = pow(max(dot(normal, halfDir), 0.0), mix(10.0, 100.0, 1.0 - roughness));
+    vec3 specular = spec * lightColor * lightIntensity;
 
-        // Reflection from Environment Map
-        vec3 reflectDir = reflect(-viewDir, normal);
-        vec3 envColor = textureCube(envMap, reflectDir).rgb;
+    // Reflection from Environment Map
+    vec3 reflectDir = reflect(-viewDir, normal);
+    vec3 envColor = textureCube(envMap, reflectDir).rgb;
 
-        // Mix base color with reflections
-        vec3 baseColor = vec3(1.0, 1.0, 1.0);   // The values can be >1.0, the higher, the brighter
-        vec3 metalReflect = mix(baseColor, envColor, metalness);
+    // Mix base color with reflections
+    vec3 baseColor = vec3(1.0, 1.0, 1.0);   // The values can be >1.0, the higher, the brighter
+    vec3 metalReflect = mix(baseColor, envColor, metalness);
 
-        // Combine lighting effects
-        vec3 finalColor = metalReflect * (diffuse + specular);
+    // Combine lighting effects
+    vec3 unaffectedColor = metalReflect * (diffuse + specular);
+    
+    // Blend between edge color and unaffected material using factor t
+    vec3 finalBlendedColor = mix(disvEdgeColor, unaffectedColor, t);
 
-        gl_FragColor = vec4(finalColor, 1.0);
-        // gl_FragColor = vec4(vec3(noise), 1.0);
-    }
+    // TODO: this is not working well
+    float edgeFactor = pow(1.0 - smoothstep(disvProgress - disvEdgeWidth * 0.2, disvProgress + disvEdgeWidth * 0.8, noise), 3.0);
+
+    gl_FragColor = vec4(finalBlendedColor, 1.0 - edgeFactor);
 }

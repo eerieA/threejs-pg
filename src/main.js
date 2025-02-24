@@ -107,6 +107,55 @@ loader.load(
 );
 
 // ========================================================================== //
+// Debug view - edge pixels
+
+const renderTarget = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+  format: THREE.RGBAFormat,
+  type: THREE.FloatType  // Allows reading precise alpha values
+});
+const pixelBuffer = new Float32Array(window.innerWidth * window.innerHeight * 4);
+const readPixels = () => {
+    renderer.readRenderTargetPixels(renderTarget, 0, 0, window.innerWidth, window.innerHeight, pixelBuffer);
+};
+
+// Create a plane to display the renderTarget texture
+const debugQuadGeometry = new THREE.PlaneGeometry(2, 2); // Fullscreen quad
+const debugQuadMaterial = new THREE.ShaderMaterial({
+  vertexShader: ` 
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = vec4(position, 1.0);
+    }
+  `,
+
+  fragmentShader: `
+    uniform sampler2D debugTexture;
+    varying vec2 vUv;
+    void main() {
+      vec3 color = texture(debugTexture, vUv).rgb;
+      float alpha = texture(debugTexture, vUv).a; // Extract alpha channel
+      gl_FragColor = vec4(vec3(alpha), 1.0);
+    }
+  `,
+
+  uniforms: {
+    debugTexture: { value: renderTarget.texture }, // Pass the texture here
+  },
+
+  depthWrite: false,
+  depthTest: false,
+});
+
+const debugQuad = new THREE.Mesh(debugQuadGeometry, debugQuadMaterial);
+const debugScene = new THREE.Scene();
+
+// Setup camera (but no need to add it to scene)
+const debugCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1);
+debugQuad.position.set(0, 0, 0); // Put the quad at z = 0
+debugScene.add(debugQuad);
+
+// ========================================================================== //
 // UIs
 const gui = new dat.GUI();
 
@@ -114,7 +163,8 @@ const gui = new dat.GUI();
 const params = {
   disvProgress: 0.1,    // Initial value
   disvEdgeWidth: 0.05, // Initial value
-  disvEdgeColor: "#ff0000" // Initial value, has to be hex for dat GUI
+  disvEdgeColor: "#ff0000", // Initial value, has to be hex for dat GUI
+  debugEdgeAlpha: true,
 };
 gui.add(params, 'disvProgress', 0.0, 1.0).step(0.01).onChange((value) => {
   guardMaterial.uniforms.disvProgress.value = value;
@@ -127,6 +177,9 @@ gui.addColor(params, 'disvEdgeColor').onChange((value) => {
   const color = new THREE.Color(value);
   guardMaterial.uniforms.disvEdgeColor.value.set(color.r, color.g, color.b);
 });
+gui.add(params, 'debugEdgeAlpha').onChange((value) => {
+  debugQuad.visible = value;
+});
 
 // Animation Loop
 function animate() {
@@ -135,7 +188,24 @@ function animate() {
   // Update controls on each frame
   controls.update();
 
-  renderer.render(scene, camera);
+  // 1st Pass: Render main scene to texture
+  if (params.debugEdgeAlpha) {
+    renderer.setRenderTarget(renderTarget);
+    renderer.clear();
+    renderer.render(scene, camera);
+
+    // 2nd Pass: Render final scene
+    renderer.setRenderTarget(null);
+    renderer.clear();
+    renderer.render(scene, camera);
+
+    // 3rd Pass: Render the debug quad (Always enabled for testing)
+    // renderer.clearDepth(); // Clears the depth buffer so quad is fully visible
+    renderer.render(debugScene, debugCamera);
+  }
+  else {
+    renderer.render(scene, camera);
+  }
 }
 
 // Handle Window Resize
