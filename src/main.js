@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import * as dat from 'dat.gui';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { MeshSurfaceSampler } from 'three/examples/jsm/Addons.js';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // Get the canvas element
 const canvas = document.getElementById('webgl-container');
@@ -81,32 +83,6 @@ const guardMaterial = new THREE.ShaderMaterial({
 });
 
 // ========================================================================== //
-// FBX model setup
-const loader = new FBXLoader();
-loader.load(
-  '/guard.fbx', // Path relative to the public/ folder
-  (fbx) => {
-    fbx.scale.set(1.0, 1.0, 1.0); // Scale down if too large
-    fbx.position.set(0.0, 0.0, 0.0);
-
-    fbx.traverse((child) => {
-      if (child.isMesh) {
-        child.material = guardMaterial;
-        child.material.needsUpdate = true;
-      }
-    });
-
-    scene.add(fbx);
-  },
-  (xhr) => {
-    console.log(`FBX Loading: ${(xhr.loaded / xhr.total) * 100}% loaded`);
-  },
-  (error) => {
-    console.error('Error loading FBX:', error);
-  }
-);
-
-// ========================================================================== //
 // UIs
 const gui = new dat.GUI();
 
@@ -128,12 +104,160 @@ gui.addColor(params, 'disvEdgeColor').onChange((value) => {
   guardMaterial.uniforms.disvEdgeColor.value.set(color.r, color.g, color.b);
 });
 
+// ========================================================================== //
+// Particle material
+// The vertex shader simply passes along the particle position.
+const particleVertexShader = `
+        uniform float time;
+        varying vec3 vPosition;
+        void main() {
+          vPosition = position;
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = 4.0;
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `;
+
+// The fragment shader computes Perlin noise based on the particle's position
+// and only renders particles when the noise is within the dissolve band.
+const particleFragmentShader = `
+        uniform float time;
+        uniform float disvProgress;
+        uniform float disvEdgeWidth;
+        varying vec3 vPosition;
+        
+        // Perlin noise helper functions:
+        vec2 n22(vec2 p) {
+          vec3 a = fract(p.xyx * vec3(123.34, 234.34, 345.65));
+          a += dot(a, a + 34.45);
+          return fract(vec2(a.x * a.y, a.y * a.z));
+        }
+        vec2 get_gradient(vec2 pos) {
+          float twoPi = 6.283185;
+          float angle = n22(pos).x * twoPi;
+          return vec2(cos(angle), sin(angle));
+        }
+        float perlin_noise(vec2 uv, float cells_count) {
+          vec2 pos_in_grid = uv * cells_count;
+          vec2 cell_pos_in_grid = floor(pos_in_grid);
+          vec2 local_pos_in_cell = (pos_in_grid - cell_pos_in_grid);
+          vec2 blend = local_pos_in_cell * local_pos_in_cell * (3.0 - 2.0 * local_pos_in_cell);
+          
+          vec2 left_top = cell_pos_in_grid + vec2(0.0, 1.0);
+          vec2 right_top = cell_pos_in_grid + vec2(1.0, 1.0);
+          vec2 left_bottom = cell_pos_in_grid + vec2(0.0, 0.0);
+          vec2 right_bottom = cell_pos_in_grid + vec2(1.0, 0.0);
+          
+          float left_top_dot = dot(pos_in_grid - left_top, get_gradient(left_top));
+          float right_top_dot = dot(pos_in_grid - right_top, get_gradient(right_top));
+          float left_bottom_dot = dot(pos_in_grid - left_bottom, get_gradient(left_bottom));
+          float right_bottom_dot = dot(pos_in_grid - right_bottom, get_gradient(right_bottom));
+          
+          float noise_value = mix(
+            mix(left_bottom_dot, right_bottom_dot, blend.x), 
+            mix(left_top_dot, right_top_dot, blend.x), 
+            blend.y);
+          return (0.5 + 0.5 * (noise_value / 0.7));
+        }
+        
+        void main() {
+          // Compute noise based on the XY of the particle's position (with an optional time offset)
+          float noise = perlin_noise(vPosition.xy, 10.0);
+          
+          // Define the dissolve band (edge threshold)
+          float lower = disvProgress;
+          float upper = disvProgress + disvEdgeWidth;
+          if (noise > upper || noise < lower) {
+            discard;
+          }
+          
+          gl_FragColor = vec4(1.0, 0.5, 0.0, 1.0);
+        }
+      `;
+
+const particleMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    time: { value: 0.0 },
+    disvProgress: { value: params.disvProgress },
+    disvEdgeWidth: { value: params.disvEdgeWidth }
+  },
+  vertexShader: particleVertexShader,
+  fragmentShader: particleFragmentShader,
+  transparent: true
+});
+
+// ========================================================================== //
+// FBX model setup
+const loader = new FBXLoader();
+loader.load(
+  '/guard.fbx', // Path relative to the public/ folder
+  (fbx) => {
+    fbx.scale.set(1.0, 1.0, 1.0); // Scale down if too large
+    fbx.position.set(0.0, 0.0, 0.0);
+
+    fbx.traverse((child) => {
+      if (child.isMesh) {
+        child.material = guardMaterial;
+        child.material.needsUpdate = true;
+      }
+    });
+
+    scene.add(fbx);
+
+    // ----- Sample the model's surface to generate particle positions -----
+    let meshForSampling = null;
+    fbx.traverse((child) => {
+      if (child.isMesh && !meshForSampling) {
+        meshForSampling = child;
+      }
+    });
+
+    if (meshForSampling) {
+      // Ensure geometry is ready
+      meshForSampling.geometry = mergeVertices(meshForSampling.geometry); // Has to do this, or else it will lose smooth shading
+      meshForSampling.geometry.computeBoundingBox();
+      meshForSampling.geometry.computeVertexNormals();
+
+      const sampler = new MeshSurfaceSampler(meshForSampling).build();
+      const particleCount = 50000; // Adjust count as needed
+      const positions = new Float32Array(particleCount * 3);
+      const tempPosition = new THREE.Vector3();
+
+      for (let i = 0; i < particleCount; i++) {
+        sampler.sample(tempPosition);
+        positions[i * 3 + 0] = tempPosition.x;
+        positions[i * 3 + 1] = -tempPosition.y;
+        positions[i * 3 + 2] = -tempPosition.z;
+      }
+
+      const particleGeometry = new THREE.BufferGeometry();
+      particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+      const particleSystem = new THREE.Points(particleGeometry, particleMaterial);
+      scene.add(particleSystem);
+    }
+  },
+  (xhr) => {
+    console.log(`FBX Loading: ${(xhr.loaded / xhr.total) * 100}% loaded`);
+  },
+  (error) => {
+    console.error('Error loading FBX:', error);
+  }
+);
+
 // Animation Loop
 function animate() {
   requestAnimationFrame(animate);
 
   // Update controls on each frame
   controls.update();
+
+  // Update particles (if available)
+  if (particleMaterial) {
+    particleMaterial.uniforms.time.value = performance.now() / 1000;
+    particleMaterial.uniforms.disvProgress.value = params.disvProgress;
+    particleMaterial.uniforms.disvEdgeWidth.value = params.disvEdgeWidth;
+  }
 
   renderer.render(scene, camera);
 }
