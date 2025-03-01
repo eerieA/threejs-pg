@@ -60,7 +60,8 @@ void main() {
 
     // Dissolution related
     vec2 uv = vWorldPos.xy * 1.0; // Scale of noise pattern, adjust as needed
-    float noise = perlin_noise(uv, 10.0);if (noise < disvProgress) {
+    float noise = perlin_noise(uv, 10.0);
+    if (noise < disvProgress) {
         discard; // Make some fragments disappear
     }
 
