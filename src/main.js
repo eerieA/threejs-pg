@@ -112,25 +112,54 @@ const planeGeometry = new THREE.PlaneGeometry(particleSize, particleSize);
 // Vertex shader for instanced particles:
 const particleVertexShader = `
   uniform float time;
-  // Declare instanceMatrix for instancing:
-  //attribute mat4 instanceMatrix;
-  varying vec3 vPosition;
+  uniform float risingSpeed;
+  uniform float turbulenceAmplitude;
+
+  attribute float instanceBirth;
+  attribute float instanceLife;
+  varying float vAlpha;
+  varying vec3 vPosition;  
+
   void main() {
-    // Apply the instance transform to the vertex position:
+    // Get the transformed world position from the instance matrix.
     vec4 worldPosition = instanceMatrix * vec4(position, 1.0);
+    
+    // Compute the age of this particle.
+    float age = time - instanceBirth;
+    float t = clamp(age / instanceLife, 0.0, 1.0);
+    
+    // Apply a rising offset.
+    worldPosition.y += risingSpeed * age;
+    
+    // Apply turbulence offset
+    // Use sine functions to compute an offset vector.
+    float frequencyX = 1.0;
+    float frequencyY = 1.2;
+    float frequencyZ = 1.4;
+    vec3 sineOffset = vec3(
+      sin(time + worldPosition.x * frequencyX),
+      sin(time + worldPosition.y * frequencyY),
+      sin(time + worldPosition.z * frequencyZ)
+    );
+    // Apply the offset scaled by turbulenceAmplitude:
+    worldPosition.xyz += sineOffset * turbulenceAmplitude;
+    
+    // Compute alpha fade for the ash effect.
+    vAlpha = 1.0 - smoothstep(0.8, 1.0, t);
     vPosition = worldPosition.xyz;
+    
     gl_Position = projectionMatrix * modelViewMatrix * worldPosition;
   }
 `;
 
 // Fragment shader remains similar (using vPosition to compute noise):
 const particleFragmentShader = `
-  uniform float time;
   uniform float disvProgress;
   uniform float disvEdgeWidth;
   varying vec3 vPosition;
-  
-  // Perlin noise helper functions (same as before)...
+  varying float vAlpha;
+
+  // Perlin noise helper functions
   vec2 n22(vec2 p) {
     vec3 a = fract(p.xyx * vec3(123.34, 234.34, 345.65));
     a += dot(a, a + 34.45);
@@ -163,20 +192,20 @@ const particleFragmentShader = `
       blend.y);
     return (0.5 + 0.5 * (noise_value / 0.7));
   }
-  
+
   void main() {
-    // Compute noise based on the instance's world position XY
+    // Compute noise for dissolve effect:
     float noise = perlin_noise(vPosition.xy, 10.0);
     
     // Define the dissolve band:
     float lower = disvProgress;
-    float upper = disvProgress + disvEdgeWidth;
+    float upper = disvProgress + disvEdgeWidth * 2.0; // Make particle gen a bit wider than the edge 
     if (noise > upper || noise < lower) {
       discard;
     }
     
-    // Apply a simple color (or a texture in a more advanced version)
-    gl_FragColor = vec4(1.0, 0.5, 0.0, 1.0);
+    // Apply color and the fading alpha
+    gl_FragColor = vec4(1.0, 0.5, 0.0, vAlpha);
   }
 `;
 
@@ -185,12 +214,17 @@ const particleMaterial = new THREE.ShaderMaterial({
   uniforms: {
     time: { value: 0.0 },
     disvProgress: { value: params.disvProgress },
-    disvEdgeWidth: { value: params.disvEdgeWidth }
+    disvEdgeWidth: { value: params.disvEdgeWidth },
+    risingSpeed: { value: 0.1 },
+    turbulenceAmplitude: { value: 0.02 }
   },
   vertexShader: particleVertexShader,
   fragmentShader: particleFragmentShader,
   transparent: true
 });
+
+const particleLifeBase = 5.0;
+const particleLifeRange = 10.0;
 
 // ========================================================================== //
 // FBX model setup
@@ -225,11 +259,13 @@ loader.load(
       meshForSampling.geometry.computeVertexNormals();
 
       const sampler = new MeshSurfaceSampler(meshForSampling).build();
-      const particleCount = 60000; // Adjust count as needed
-      
-      // Create the instanced mesh:
+      const particleCount = 60000;
       const instancedMesh = new THREE.InstancedMesh(planeGeometry, particleMaterial, particleCount);
-
+      
+      // Create arrays for custom per-instance attributes:
+      const instanceBirth = new Float32Array(particleCount);
+      const instanceLife = new Float32Array(particleCount);
+      
       const dummy = new THREE.Object3D();
       const tempPosition = new THREE.Vector3();
       for (let i = 0; i < particleCount; i++) {
@@ -237,18 +273,30 @@ loader.load(
         // Somehow we always have to flip signs of y and z
         tempPosition.y *= -1.0;
         tempPosition.z *= -1.0;
-        // Set the position (you can also add random rotation/scale here)
+        // tempPosition.x += (-1.0 + Math.random()*2.0)*0.1;
+        
+        // Set the instance transform
         dummy.position.copy(tempPosition);
-        // For example, add a random rotation around Y:
         dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
-        // Optionally set a random scale:
-        dummy.scale.setScalar(1.0); // or a random value
+        dummy.scale.setScalar(0.4 + Math.random() * 0.9); // Set starting scale, the largest scale is 1.0
         dummy.updateMatrix();
         instancedMesh.setMatrixAt(i, dummy.matrix);
+        
+        // Set a random birth time (delay) and a lifetime for this particle
+        instanceBirth[i] = Math.random() * particleLifeRange;           // Particle “appears” sometime in the first <range> seconds
+        instanceLife[i] = particleLifeBase + Math.random() * particleLifeRange;      // Lifetime between base and base+range seconds
       }
-      // If you later modify instance matrices dynamically, mark them as needing update:
-      // instancedMesh.instanceMatrix.needsUpdate = true;
-
+      
+      // Attach these custom attributes to the instanced geometry
+      instancedMesh.geometry.setAttribute(
+        'instanceBirth',
+        new THREE.InstancedBufferAttribute(instanceBirth, 1)
+      );
+      instancedMesh.geometry.setAttribute(
+        'instanceLife',
+        new THREE.InstancedBufferAttribute(instanceLife, 1)
+      );
+      
       scene.add(instancedMesh);
     }
   },
