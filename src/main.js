@@ -106,75 +106,81 @@ gui.addColor(params, 'disvEdgeColor').onChange((value) => {
 
 // ========================================================================== //
 // Particle material
-// The vertex shader simply passes along the particle position.
+const particleSize = 0.01; // Adjust size as needed
+const planeGeometry = new THREE.PlaneGeometry(particleSize, particleSize);
+
+// Vertex shader for instanced particles:
 const particleVertexShader = `
-        uniform float time;
-        varying vec3 vPosition;
-        void main() {
-          vPosition = position;
-          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = 4.0;
-          gl_Position = projectionMatrix * mvPosition;
-        }
-      `;
+  uniform float time;
+  // Declare instanceMatrix for instancing:
+  //attribute mat4 instanceMatrix;
+  varying vec3 vPosition;
+  void main() {
+    // Apply the instance transform to the vertex position:
+    vec4 worldPosition = instanceMatrix * vec4(position, 1.0);
+    vPosition = worldPosition.xyz;
+    gl_Position = projectionMatrix * modelViewMatrix * worldPosition;
+  }
+`;
 
-// The fragment shader computes Perlin noise based on the particle's position
-// and only renders particles when the noise is within the dissolve band.
+// Fragment shader remains similar (using vPosition to compute noise):
 const particleFragmentShader = `
-        uniform float time;
-        uniform float disvProgress;
-        uniform float disvEdgeWidth;
-        varying vec3 vPosition;
-        
-        // Perlin noise helper functions:
-        vec2 n22(vec2 p) {
-          vec3 a = fract(p.xyx * vec3(123.34, 234.34, 345.65));
-          a += dot(a, a + 34.45);
-          return fract(vec2(a.x * a.y, a.y * a.z));
-        }
-        vec2 get_gradient(vec2 pos) {
-          float twoPi = 6.283185;
-          float angle = n22(pos).x * twoPi;
-          return vec2(cos(angle), sin(angle));
-        }
-        float perlin_noise(vec2 uv, float cells_count) {
-          vec2 pos_in_grid = uv * cells_count;
-          vec2 cell_pos_in_grid = floor(pos_in_grid);
-          vec2 local_pos_in_cell = (pos_in_grid - cell_pos_in_grid);
-          vec2 blend = local_pos_in_cell * local_pos_in_cell * (3.0 - 2.0 * local_pos_in_cell);
-          
-          vec2 left_top = cell_pos_in_grid + vec2(0.0, 1.0);
-          vec2 right_top = cell_pos_in_grid + vec2(1.0, 1.0);
-          vec2 left_bottom = cell_pos_in_grid + vec2(0.0, 0.0);
-          vec2 right_bottom = cell_pos_in_grid + vec2(1.0, 0.0);
-          
-          float left_top_dot = dot(pos_in_grid - left_top, get_gradient(left_top));
-          float right_top_dot = dot(pos_in_grid - right_top, get_gradient(right_top));
-          float left_bottom_dot = dot(pos_in_grid - left_bottom, get_gradient(left_bottom));
-          float right_bottom_dot = dot(pos_in_grid - right_bottom, get_gradient(right_bottom));
-          
-          float noise_value = mix(
-            mix(left_bottom_dot, right_bottom_dot, blend.x), 
-            mix(left_top_dot, right_top_dot, blend.x), 
-            blend.y);
-          return (0.5 + 0.5 * (noise_value / 0.7));
-        }
-        
-        void main() {
-          // Compute noise based on the XY of the particle's position (with an optional time offset)
-          float noise = perlin_noise(vPosition.xy, 10.0);
-          
-          // Define the dissolve band (edge threshold)
-          float lower = disvProgress;
-          float upper = disvProgress + disvEdgeWidth;
-          if (noise > upper || noise < lower) {
-            discard;
-          }
-          
-          gl_FragColor = vec4(1.0, 0.5, 0.0, 1.0);
-        }
-      `;
+  uniform float time;
+  uniform float disvProgress;
+  uniform float disvEdgeWidth;
+  varying vec3 vPosition;
+  
+  // Perlin noise helper functions (same as before)...
+  vec2 n22(vec2 p) {
+    vec3 a = fract(p.xyx * vec3(123.34, 234.34, 345.65));
+    a += dot(a, a + 34.45);
+    return fract(vec2(a.x * a.y, a.y * a.z));
+  }
+  vec2 get_gradient(vec2 pos) {
+    float twoPi = 6.283185;
+    float angle = n22(pos).x * twoPi;
+    return vec2(cos(angle), sin(angle));
+  }
+  float perlin_noise(vec2 uv, float cells_count) {
+    vec2 pos_in_grid = uv * cells_count;
+    vec2 cell_pos_in_grid = floor(pos_in_grid);
+    vec2 local_pos_in_cell = (pos_in_grid - cell_pos_in_grid);
+    vec2 blend = local_pos_in_cell * local_pos_in_cell * (3.0 - 2.0 * local_pos_in_cell);
+    
+    vec2 left_top = cell_pos_in_grid + vec2(0.0, 1.0);
+    vec2 right_top = cell_pos_in_grid + vec2(1.0, 1.0);
+    vec2 left_bottom = cell_pos_in_grid + vec2(0.0, 0.0);
+    vec2 right_bottom = cell_pos_in_grid + vec2(1.0, 0.0);
+    
+    float left_top_dot = dot(pos_in_grid - left_top, get_gradient(left_top));
+    float right_top_dot = dot(pos_in_grid - right_top, get_gradient(right_top));
+    float left_bottom_dot = dot(pos_in_grid - left_bottom, get_gradient(left_bottom));
+    float right_bottom_dot = dot(pos_in_grid - right_bottom, get_gradient(right_bottom));
+    
+    float noise_value = mix(
+      mix(left_bottom_dot, right_bottom_dot, blend.x), 
+      mix(left_top_dot, right_top_dot, blend.x), 
+      blend.y);
+    return (0.5 + 0.5 * (noise_value / 0.7));
+  }
+  
+  void main() {
+    // Compute noise based on the instance's world position XY
+    float noise = perlin_noise(vPosition.xy, 10.0);
+    
+    // Define the dissolve band:
+    float lower = disvProgress;
+    float upper = disvProgress + disvEdgeWidth;
+    if (noise > upper || noise < lower) {
+      discard;
+    }
+    
+    // Apply a simple color (or a texture in a more advanced version)
+    gl_FragColor = vec4(1.0, 0.5, 0.0, 1.0);
+  }
+`;
 
+// Create the ShaderMaterial for the particles
 const particleMaterial = new THREE.ShaderMaterial({
   uniforms: {
     time: { value: 0.0 },
@@ -219,22 +225,31 @@ loader.load(
       meshForSampling.geometry.computeVertexNormals();
 
       const sampler = new MeshSurfaceSampler(meshForSampling).build();
-      const particleCount = 50000; // Adjust count as needed
-      const positions = new Float32Array(particleCount * 3);
-      const tempPosition = new THREE.Vector3();
+      const particleCount = 60000; // Adjust count as needed
+      
+      // Create the instanced mesh:
+      const instancedMesh = new THREE.InstancedMesh(planeGeometry, particleMaterial, particleCount);
 
+      const dummy = new THREE.Object3D();
+      const tempPosition = new THREE.Vector3();
       for (let i = 0; i < particleCount; i++) {
         sampler.sample(tempPosition);
-        positions[i * 3 + 0] = tempPosition.x;
-        positions[i * 3 + 1] = -tempPosition.y;
-        positions[i * 3 + 2] = -tempPosition.z;
+        // Somehow we always have to flip signs of y and z
+        tempPosition.y *= -1.0;
+        tempPosition.z *= -1.0;
+        // Set the position (you can also add random rotation/scale here)
+        dummy.position.copy(tempPosition);
+        // For example, add a random rotation around Y:
+        dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
+        // Optionally set a random scale:
+        dummy.scale.setScalar(1.0); // or a random value
+        dummy.updateMatrix();
+        instancedMesh.setMatrixAt(i, dummy.matrix);
       }
+      // If you later modify instance matrices dynamically, mark them as needing update:
+      // instancedMesh.instanceMatrix.needsUpdate = true;
 
-      const particleGeometry = new THREE.BufferGeometry();
-      particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-      const particleSystem = new THREE.Points(particleGeometry, particleMaterial);
-      scene.add(particleSystem);
+      scene.add(instancedMesh);
     }
   },
   (xhr) => {
