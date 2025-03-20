@@ -114,6 +114,8 @@ const particleVertexShader = `
   uniform float time;
   uniform float risingSpeed;
   uniform float turbulenceAmplitude;
+  uniform float fadeStartHeight; // e.g., 5.0
+  uniform float fadeEndHeight;   // e.g., 10.0
 
   attribute float instanceBirth;
   attribute float instanceLife;
@@ -145,7 +147,14 @@ const particleVertexShader = `
     worldPosition.xyz += sineOffset * turbulenceAmplitude;
     
     // Compute alpha fade for the ash effect.
-    vAlpha = 1.0 - smoothstep(0.8, 1.0, t);
+    // Compute fade factor based on age.
+    float fadeAge = 1.0 - smoothstep(0.8, 1.0, t);
+    
+    // Compute fade factor based on the world y position.
+    float fadeHeight = 1.0 - smoothstep(fadeStartHeight, fadeEndHeight, worldPosition.y);
+    
+    // Combine the two fade factors.
+    vAlpha = fadeAge * fadeHeight;
     vPosition = worldPosition.xyz;
     
     gl_Position = projectionMatrix * modelViewMatrix * worldPosition;
@@ -216,7 +225,9 @@ const particleMaterial = new THREE.ShaderMaterial({
     disvProgress: { value: params.disvProgress },
     disvEdgeWidth: { value: params.disvEdgeWidth },
     risingSpeed: { value: 0.1 },
-    turbulenceAmplitude: { value: 0.02 }
+    turbulenceAmplitude: { value: 0.02 },
+    fadeStartHeight: { value: 1.8 },
+    fadeEndHeight: { value: 2.2 }
   },
   vertexShader: particleVertexShader,
   fragmentShader: particleFragmentShader,
@@ -273,7 +284,8 @@ loader.load(
         // Somehow we always have to flip signs of y and z
         tempPosition.y *= -1.0;
         tempPosition.z *= -1.0;
-        // tempPosition.x += (-1.0 + Math.random()*2.0)*0.1;
+        tempPosition.y += 0.2;  // Adjust for the sampler's inaccuracy
+        tempPosition.x += (-1.0 + Math.random() * 2.0) * 0.1; // Add some randomness to the birth x pos
         
         // Set the instance transform
         dummy.position.copy(tempPosition);
