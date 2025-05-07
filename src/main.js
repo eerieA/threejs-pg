@@ -63,7 +63,7 @@ const envMap = cubeTextureLoader.load([
 scene.environment = envMap; // Apply environment map globally
 scene.background = envMap;  // Make the cubemap visible by setting it as bg
 scene.environment.colorSpace = THREE.SRGBColorSpace;
-scene.backgroundIntensity = 3.5;
+scene.backgroundIntensity = 2.5;
 
 async function loadShader(url) {
   const response = await fetch(url);
