@@ -14,6 +14,10 @@ Banded colors in fragment shaders, [Sobel filter](https://en.wikipedia.org/wiki/
 
 <img alt="Toon shading demo" src="./assets/toon-shading.gif" width="300">
 
+## How to run
+
+Using Node.js to manage dependencies and Vite for dev server, so `npm run dev` is needed to run these programs. See *package.json* for a bit more details.
+
 ## Acknowledgements
 
 - **Fbx model**: "3D Ancient Royal Guard Model" by Drxn ([Source URL](https://sketchfab.com/3d-models/3d-ancient-royal-guard-model-d86879cf6cc8444080f3588f7993bb5a)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
