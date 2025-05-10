@@ -1,7 +1,7 @@
 uniform sampler2D tDiffuse;
 uniform vec2 uDirection;
 uniform float uBlurAmount;
-uniform vec2 uResolution; // Add this uniform
+uniform vec2 uResolution;
 varying vec2 vUv;
 
 void main() {
@@ -12,8 +12,8 @@ void main() {
     vec2 pixelSize = vec2(1.0) / uResolution;
 
     // Increased sample count and optimized weights
-    const int samples = 32; // More samples for smoother blur
-    float sigma = uBlurAmount * 0.5; // Adjust spread
+    const int samples = 32;
+    float sigma = uBlurAmount * 0.5;
 
     for(int i = -samples / 2; i <= samples / 2; i++) {
         // Gaussian weight calculation
